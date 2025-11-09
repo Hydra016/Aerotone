@@ -6,7 +6,7 @@ export default function AccelerometerScreen() {
 
   const formatValue = (value: number | null | undefined): string => {
     if (value == null) return '—';
-    return value.toFixed(3);
+    return value.toFixed(1);
   };
 
   const getMagnitude = (): number => {

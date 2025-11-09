@@ -11,6 +11,7 @@ export default function GeoTrackerScreen() {
   const {
     isActive, start, pause, reset,
     error,
+    permissionStatus,
     distanceM,
     speedKmh,
     avgSpeedKmh,
@@ -37,7 +38,42 @@ export default function GeoTrackerScreen() {
         <Stat label="Accuracy" value={lastFix?.coords.accuracy ? `${Math.round(lastFix.coords.accuracy)} m` : "—"} />
       </div>
 
-      {error && <p style={{ color: "#c62828", marginTop: 10 }}>Error: {error}</p>}
+      {error && (
+        <div style={{
+          padding: 12,
+          borderRadius: 8,
+          background: "#ffebee",
+          border: "1px solid #ef5350",
+          marginTop: 16,
+          color: "#c62828"
+        }}>
+          <strong>Error:</strong> {error}
+          {permissionStatus === 'denied' && (
+            <div style={{ marginTop: 8, fontSize: 14 }}>
+              <p><strong>To fix this:</strong></p>
+              <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
+                <li>Check your browser's location permission settings</li>
+                <li>On mobile: Go to Settings → Privacy → Location Services</li>
+                <li>Make sure the app is served over HTTPS (required for geolocation)</li>
+                <li>Try refreshing the page after granting permission</li>
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {permissionStatus === 'prompt' && !error && (
+        <div style={{
+          padding: 12,
+          borderRadius: 8,
+          background: "#fff3e0",
+          border: "1px solid #ff9800",
+          marginTop: 16,
+          color: "#e65100"
+        }}>
+          <strong>Note:</strong> Click "Start" to request location permission. Make sure to allow access when prompted.
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         {!isActive ? (

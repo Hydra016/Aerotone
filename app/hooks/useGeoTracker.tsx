@@ -19,6 +19,7 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
 
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissionStatus, setPermissionStatus] = useState<PermissionState | 'unknown'>('unknown');
 
   const [distanceM, setDistanceM] = useState(0);
   const [speedMs, setSpeedMs] = useState<number | null>(null);
@@ -31,6 +32,7 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
   const startedAtRef = useRef<number | null>(null);
   const movingTimeRef = useRef<number>(0);  // seconds accumulating while active
   const lastTickRef = useRef<number | null>(null);
+  const distanceRef = useRef<number>(0);  // Track distance in ref for calculations
 
   // Start / Pause / Reset
   const start = useCallback(() => setIsActive(true), []);
@@ -38,6 +40,7 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
   const reset = useCallback(() => {
     setIsActive(false);
     setDistanceM(0);
+    distanceRef.current = 0;
     setSpeedMs(null);
     setAvgSpeedMs(null);
     setLastFix(null);
@@ -47,7 +50,7 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
     lastTickRef.current = null;
   }, []);
 
-  // Accumulate moving time while active (based on callbacks)
+  // Accumulate moving time and update average speed in real-time
   useEffect(() => {
     if (!isActive) return;
     const r = () => {
@@ -56,12 +59,47 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
         movingTimeRef.current += (now - lastTickRef.current) / 1000;
       }
       lastTickRef.current = now;
+      
+      // Update average speed in real-time based on current distance and time
+      const tsec = movingTimeRef.current;
+      if (tsec > 2 && distanceRef.current >= 0) {
+        const avg = distanceRef.current / tsec; // m/s
+        setAvgSpeedMs(avg);
+      }
+      
       requestAnimationFrame(r);
     };
     lastTickRef.current = performance.now();
     const id = requestAnimationFrame(r);
     return () => cancelAnimationFrame(id);
   }, [isActive]);
+
+  // Check permission status
+  useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      setError("Geolocation is not supported by this browser.");
+      return;
+    }
+
+    // Check permissions API if available
+    if ('permissions' in navigator) {
+      navigator.permissions.query({ name: 'geolocation' as PermissionName }).then((result) => {
+        setPermissionStatus(result.state);
+        if (result.state === 'granted') {
+          setError(null);
+        }
+        result.onchange = () => {
+          setPermissionStatus(result.state);
+          if (result.state === 'granted') {
+            setError(null);
+          }
+        };
+      }).catch(() => {
+        // Permissions API not fully supported, ignore
+        setPermissionStatus('unknown');
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!("geolocation" in navigator)) {
@@ -71,6 +109,7 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
 
     const onSuccess = (pos: GeolocationPosition) => {
       setLastFix(pos);
+      setError(null); // Clear any previous errors on success
       if (!isActive) return;
 
       const { latitude, longitude, speed, accuracy } = pos.coords;
@@ -98,7 +137,8 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
         // Add to total distance only if the fix is sane (<= 100 m in 1s ~ 360 km/h cap)
         const unrealistic = d > 100 && dt <= 1;
         if (!unrealistic) {
-          setDistanceM((m) => m + d);
+          distanceRef.current += d;
+          setDistanceM(distanceRef.current); // Update state for UI
         }
       }
 
@@ -106,26 +146,40 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
       if (s != null && Number.isFinite(s)) {
         setSpeedMs((v) => (v == null ? s : v + (s - v) * smoothFactor));
       }
-
-      // Average speed over moving time (distance / time)
-      const tsec = movingTimeRef.current;
-      if (tsec > 2 && distanceM >= 0) {
-        const avg = (distanceM) / tsec; // m/s
-        setAvgSpeedMs(avg);
-      }
+      
+      // Average speed is now updated in real-time via requestAnimationFrame
 
       prevRef.current = { t: now, lat: latitude, lon: longitude, acc: accuracy ?? 9999 };
     };
 
-    const onError = (e: GeolocationPositionError) => setError(e.message);
+    const onError = (e: GeolocationPositionError) => {
+      let errorMessage = e.message;
+      
+      if (e.code === e.PERMISSION_DENIED) {
+        errorMessage = "Location permission denied. Please enable location access in your browser settings and try again.";
+        setPermissionStatus('denied');
+      } else if (e.code === e.POSITION_UNAVAILABLE) {
+        errorMessage = "Location information unavailable. Make sure location services are enabled on your device.";
+      } else if (e.code === e.TIMEOUT) {
+        errorMessage = "Location request timed out. Please try again.";
+      }
+      
+      setError(errorMessage);
+    };
 
     // Attach watcher only when active
     if (isActive) {
       watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, {
         enableHighAccuracy: true,
-        maximumAge: 0,
+        maximumAge: 0,  // Always get fresh position
         timeout: 10000,
       });
+    } else {
+      // Clear distance ref when paused
+      if (watchIdRef.current != null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     }
 
     return () => {
@@ -134,7 +188,7 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
         watchIdRef.current = null;
       }
     };
-  }, [isActive, minAccuracyM, minIntervalMs, smoothFactor, distanceM]);
+  }, [isActive, minAccuracyM, minIntervalMs, smoothFactor]);
 
   const kmh = speedMs == null ? null : speedMs * 3.6;
   const avgKmh = avgSpeedMs == null ? null : avgSpeedMs * 3.6;
@@ -142,6 +196,7 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
   return {
     isActive, start, pause, reset,
     error,
+    permissionStatus,
     distanceM,
     speedMs, speedKmh: kmh,
     avgSpeedMs, avgSpeedKmh: avgKmh,

@@ -1,8 +1,29 @@
 'use client';
 import { useAccelerometer } from '../hooks/useAccelerometer';
+import { useAudioMotion } from '../hooks/useAudioMotion';
+import { useState } from 'react';
 
 export default function AccelerometerScreen() {
   const { data, error, isSupported, needsPermission, requestPermission } = useAccelerometer();
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const { isPlaying, audioContextStarted, startAudio, stop } = useAudioMotion(data, {
+    enabled: audioEnabled && !!data,
+    baseFrequency: 220, // A3 note
+    frequencyRange: 440, // Range for frequency variation
+    volume: 0.3,
+  });
+
+  const handleToggleAudio = () => {
+    if (!audioContextStarted) {
+      startAudio();
+      setAudioEnabled(true);
+    } else if (isPlaying) {
+      stop();
+      setAudioEnabled(false);
+    } else {
+      setAudioEnabled(true);
+    }
+  };
 
   const formatValue = (value: number | null | undefined): string => {
     if (value == null) return '—';
@@ -28,6 +49,41 @@ export default function AccelerometerScreen() {
       <h1 style={{ margin: '0 0 32px 0', fontSize: 32, fontWeight: 700 }}>
         Accelerometer Data
       </h1>
+
+      {data && !needsPermission && (
+        <div style={{ marginBottom: 24 }}>
+          <button
+            onClick={handleToggleAudio}
+            style={{
+              padding: '14px 28px',
+              borderRadius: 12,
+              border: 'none',
+              background: isPlaying ? '#ef5350' : '#4CAF50',
+              color: 'white',
+              fontSize: 18,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {isPlaying ? '🔊 Stop Sound' : '🎵 Start Sound'}
+          </button>
+          {isPlaying && (
+            <div style={{
+              marginTop: 12,
+              padding: 12,
+              borderRadius: 8,
+              background: '#e8f5e9',
+              border: '1px solid #4CAF50',
+              color: '#2e7d32',
+              fontSize: 14,
+            }}>
+              <strong>Sound Active:</strong> Move your device up/down to change pitch, move faster for louder sound!
+            </div>
+          )}
+        </div>
+      )}
 
       {needsPermission && (
         <div style={{

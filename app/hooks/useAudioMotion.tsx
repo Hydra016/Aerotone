@@ -3,8 +3,20 @@ import { useEffect, useRef, useState } from 'react';
 import * as Tone from 'tone';
 import { AccelerometerData } from './useAccelerometer';
 
+export type InstrumentType = 
+  | 'sine'
+  | 'square'
+  | 'sawtooth'
+  | 'triangle'
+  | 'fm'
+  | 'am'
+  | 'mono'
+  | 'duo'
+  | 'pluck';
+
 interface AudioMotionOptions {
   enabled?: boolean;
+  instrument?: InstrumentType;
   baseFrequency?: number; // Base frequency in Hz
   frequencyRange?: number; // Range of frequency variation
   volume?: number; // Volume (0-1)
@@ -16,6 +28,7 @@ export function useAudioMotion(
 ) {
   const {
     enabled = true,
+    instrument = 'sine',
     baseFrequency = 220, // A3 note
     frequencyRange = 440, // Range from baseFrequency to baseFrequency + range
     volume = 0.3,
@@ -24,41 +37,142 @@ export function useAudioMotion(
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioContextStarted, setAudioContextStarted] = useState(false);
   
-  const synthRef = useRef<Tone.Synth | null>(null);
+  const synthRef = useRef<Tone.ToneAudioNode | null>(null);
   const volumeNodeRef = useRef<Tone.Volume | null>(null);
+  const reverbRef = useRef<Tone.Reverb | null>(null);
+  const delayRef = useRef<Tone.FeedbackDelay | null>(null);
   const prevDataRef = useRef<AccelerometerData | null>(null);
   const velocityRef = useRef({ x: 0, y: 0, z: 0 });
+
+  // Create instrument based on type
+  const createInstrument = (type: InstrumentType): Tone.ToneAudioNode => {
+    switch (type) {
+      case 'sine':
+        return new Tone.Synth({
+          oscillator: { type: 'sine' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.3 },
+        });
+      
+      case 'square':
+        return new Tone.Synth({
+          oscillator: { type: 'square' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.4, release: 0.2 },
+        });
+      
+      case 'sawtooth':
+        return new Tone.Synth({
+          oscillator: { type: 'sawtooth' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.3 },
+        });
+      
+      case 'triangle':
+        return new Tone.Synth({
+          oscillator: { type: 'triangle' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.4 },
+        });
+      
+      case 'fm':
+        return new Tone.FMSynth({
+          harmonicity: 3,
+          modulationIndex: 10,
+          detune: 0,
+          oscillator: { type: 'sine' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.3 },
+          modulation: { type: 'square' },
+          modulationEnvelope: { attack: 0.5, decay: 0.01, sustain: 1, release: 0.5 },
+        });
+      
+      case 'am':
+        return new Tone.AMSynth({
+          harmonicity: 3,
+          detune: 0,
+          oscillator: { type: 'sine' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.3 },
+          modulation: { type: 'triangle' },
+          modulationEnvelope: { attack: 0.5, decay: 0.01, sustain: 1, release: 0.5 },
+        });
+      
+      case 'mono':
+        return new Tone.MonoSynth({
+          oscillator: { type: 'sawtooth' },
+          envelope: { attack: 0.1, decay: 0.3, sustain: 0.4, release: 0.8 },
+          filter: { Q: 2, frequency: 2000 },
+          filterEnvelope: { attack: 0.3, decay: 0.2, sustain: 0.5, release: 0.8 },
+        });
+      
+      case 'duo':
+        return new Tone.DuoSynth({
+          voice0: {
+            oscillator: { type: 'sawtooth' },
+            envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.3 },
+            filterEnvelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 0.3 },
+          },
+          voice1: {
+            oscillator: { type: 'sawtooth' },
+            envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.3 },
+            filterEnvelope: { attack: 0.05, decay: 0.1, sustain: 0.3, release: 0.3 },
+          },
+          vibratoAmount: 0.5,
+          vibratoRate: 5,
+        });
+      
+      case 'pluck':
+        return new Tone.PluckSynth({
+          attackNoise: 1,
+          dampening: 4000,
+          resonance: 0.7,
+        });
+      
+      default:
+        return new Tone.Synth({
+          oscillator: { type: 'sine' },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.3 },
+        });
+    }
+  };
 
   // Initialize audio
   useEffect(() => {
     if (!enabled) return;
 
-    // Create synthesizer with a nice tone
-    const synth = new Tone.Synth({
-      oscillator: {
-        type: 'sine', // Smooth sine wave
-      },
-      envelope: {
-        attack: 0.01,
-        decay: 0.1,
-        sustain: 0.3,
-        release: 0.3,
-      },
+    // Create instrument
+    const synth = createInstrument(instrument);
+
+    // Create effects
+    const reverb = new Tone.Reverb({
+      roomSize: 0.7,
+      damping: 0.5,
+      wet: 0.3,
+    });
+    reverb.generate();
+
+    const delay = new Tone.FeedbackDelay({
+      delayTime: '8n',
+      feedback: 0.2,
+      wet: 0.2,
     });
 
     // Create volume node for volume control (in dB)
     const volumeNode = new Tone.Volume(Tone.gainToDb(volume));
-    synth.connect(volumeNode);
+
+    // Connect: synth -> delay -> reverb -> volume -> destination
+    synth.connect(delay);
+    delay.connect(reverb);
+    reverb.connect(volumeNode);
     volumeNode.toDestination();
 
     synthRef.current = synth;
     volumeNodeRef.current = volumeNode;
+    reverbRef.current = reverb;
+    delayRef.current = delay;
 
     return () => {
       synth.dispose();
       volumeNode.dispose();
+      reverb.dispose();
+      delay.dispose();
     };
-  }, [enabled, volume]);
+  }, [enabled, volume, instrument]);
 
   // Start audio context on user interaction
   const startAudio = async () => {
@@ -76,19 +190,23 @@ export function useAudioMotion(
   // Start/stop continuous sound
   useEffect(() => {
     if (!enabled || !synthRef.current || !audioContextStarted) {
-      if (synthRef.current) {
-        synthRef.current.triggerRelease();
+      if (synthRef.current && 'triggerRelease' in synthRef.current) {
+        (synthRef.current as any).triggerRelease();
       }
       return;
     }
 
     const synth = synthRef.current;
     
-    // Start continuous sound
-    synth.triggerAttack(baseFrequency);
+    // Start continuous sound (different methods for different synths)
+    if ('triggerAttack' in synth) {
+      (synth as any).triggerAttack(baseFrequency);
+    }
 
     return () => {
-      synth.triggerRelease();
+      if ('triggerRelease' in synth) {
+        (synth as any).triggerRelease();
+      }
     };
   }, [enabled, audioContextStarted, baseFrequency]);
 
@@ -139,9 +257,11 @@ export function useAudioMotion(
     const dynamicVolume = volume * (0.2 + speedNormalized * 0.8); // Volume between 20% and 100% of base
 
     // Smoothly update frequency and volume
-    // Tone.js Synth uses oscillator.frequency
-    if (synth.oscillator && synth.oscillator.frequency) {
-      synth.oscillator.frequency.rampTo(frequency, 0.1); // Smooth frequency change over 100ms
+    // Different synths have different frequency control paths
+    if ('oscillator' in synth && synth.oscillator && 'frequency' in synth.oscillator) {
+      (synth.oscillator as any).frequency.rampTo(frequency, 0.1);
+    } else if ('frequency' in synth) {
+      (synth as any).frequency.rampTo(frequency, 0.1);
     }
     
     if (volumeNode) {
@@ -156,8 +276,8 @@ export function useAudioMotion(
     audioContextStarted,
     startAudio,
     stop: () => {
-      if (synthRef.current) {
-        synthRef.current.triggerRelease();
+      if (synthRef.current && 'triggerRelease' in synthRef.current) {
+        (synthRef.current as any).triggerRelease();
       }
       setIsPlaying(false);
     },

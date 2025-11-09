@@ -1,13 +1,27 @@
 'use client';
 import { useAccelerometer } from '../hooks/useAccelerometer';
-import { useAudioMotion } from '../hooks/useAudioMotion';
+import { useAudioMotion, InstrumentType } from '../hooks/useAudioMotion';
 import { useState } from 'react';
+
+const instruments: { value: InstrumentType; label: string; emoji: string; description: string }[] = [
+  { value: 'sine', label: 'Sine', emoji: '🌊', description: 'Smooth, pure tone' },
+  { value: 'square', label: 'Square', emoji: '🔲', description: 'Digital, harsh' },
+  { value: 'sawtooth', label: 'Sawtooth', emoji: '🔺', description: 'Bright, buzzy' },
+  { value: 'triangle', label: 'Triangle', emoji: '🔻', description: 'Mellow, soft' },
+  { value: 'fm', label: 'FM Synth', emoji: '🔔', description: 'Bell-like, complex' },
+  { value: 'am', label: 'AM Synth', emoji: '🎹', description: 'Warm, rich' },
+  { value: 'mono', label: 'Mono Synth', emoji: '🎸', description: 'Bass-like, filtered' },
+  { value: 'duo', label: 'Duo Synth', emoji: '🎵', description: 'Layered, vibrant' },
+  { value: 'pluck', label: 'Pluck', emoji: '🎻', description: 'String-like, percussive' },
+];
 
 export default function AccelerometerScreen() {
   const { data, error, isSupported, needsPermission, requestPermission } = useAccelerometer();
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [selectedInstrument, setSelectedInstrument] = useState<InstrumentType>('sine');
   const { isPlaying, audioContextStarted, startAudio, stop } = useAudioMotion(data, {
     enabled: audioEnabled && !!data,
+    instrument: selectedInstrument,
     baseFrequency: 220, // A3 note
     frequencyRange: 440, // Range for frequency variation
     volume: 0.3,
@@ -52,6 +66,69 @@ export default function AccelerometerScreen() {
 
       {data && !needsPermission && (
         <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{
+              display: 'block',
+              marginBottom: 8,
+              fontSize: 14,
+              fontWeight: 600,
+              color: '#333',
+            }}>
+              Select Instrument:
+            </label>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+              gap: 8,
+            }}>
+              {instruments.map((inst) => (
+                <button
+                  key={inst.value}
+                  onClick={() => {
+                    if (isPlaying) {
+                      stop();
+                      setAudioEnabled(false);
+                      setTimeout(() => {
+                        setSelectedInstrument(inst.value);
+                        setAudioEnabled(true);
+                      }, 100);
+                    } else {
+                      setSelectedInstrument(inst.value);
+                    }
+                  }}
+                  style={{
+                    padding: '12px 8px',
+                    borderRadius: 8,
+                    border: selectedInstrument === inst.value ? '2px solid #2196F3' : '1px solid #ddd',
+                    background: selectedInstrument === inst.value ? '#e3f2fd' : 'white',
+                    color: selectedInstrument === inst.value ? '#1976d2' : '#666',
+                    fontSize: 12,
+                    fontWeight: selectedInstrument === inst.value ? 600 : 400,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>{inst.emoji}</span>
+                  <span>{inst.label}</span>
+                </button>
+              ))}
+            </div>
+            {selectedInstrument && (
+              <div style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: '#666',
+                fontStyle: 'italic',
+              }}>
+                {instruments.find(i => i.value === selectedInstrument)?.description}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleToggleAudio}
             style={{
@@ -65,6 +142,7 @@ export default function AccelerometerScreen() {
               cursor: 'pointer',
               boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
               transition: 'all 0.2s',
+              width: '100%',
             }}
           >
             {isPlaying ? '🔊 Stop Sound' : '🎵 Start Sound'}

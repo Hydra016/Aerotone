@@ -139,11 +139,8 @@ export function useAudioMotion(
     const synth = createInstrument(instrument);
 
     // Create effects
-    const reverb = new Tone.Reverb({
-      roomSize: 0.7,
-      damping: 0.5,
-      wet: 0.3,
-    });
+    const reverb = new Tone.Reverb(1.5); // Decay time in seconds
+    reverb.wet.value = 0.3; // Set wet/dry mix
     reverb.generate();
 
     const delay = new Tone.FeedbackDelay({

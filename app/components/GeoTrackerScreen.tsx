@@ -18,8 +18,8 @@ export default function GeoTrackerScreen() {
     lastFix,
   } = useGeoTracker({
     minAccuracyM: 60,
-    minIntervalMs: 500,
-    smoothFactor: 0.25,
+    minIntervalMs: 100,  // More frequent updates for real-time feel
+    smoothFactor: 0.3,   // More responsive smoothing
   });
 
   return (

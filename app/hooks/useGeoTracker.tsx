@@ -13,62 +13,88 @@ export type GeoTrackerOptions = {
 export function useGeoTracker(opts: GeoTrackerOptions = {}) {
   const {
     minAccuracyM = 60,
-    minIntervalMs = 500,
-    smoothFactor = 0.25,
+    minIntervalMs = 100,  // Reduced from 500ms for more frequent updates
+    smoothFactor = 0.3,   // Slightly more responsive
   } = opts;
 
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<PermissionState | 'unknown'>('unknown');
 
-  const [distanceM, setDistanceM] = useState(0);
-  const [speedMs, setSpeedMs] = useState<number | null>(null);
-  const [avgSpeedMs, setAvgSpeedMs] = useState<number | null>(null);
+  // Display values - updated frequently for smooth UI
+  const [displayDistanceM, setDisplayDistanceM] = useState(0);
+  const [displaySpeedKmh, setDisplaySpeedKmh] = useState<number | null>(null);
+  const [displayAvgSpeedKmh, setDisplayAvgSpeedKmh] = useState<number | null>(null);
 
   const [lastFix, setLastFix] = useState<GeolocationPosition | null>(null);
 
   const watchIdRef = useRef<number | null>(null);
   const prevRef = useRef<Fix | null>(null);
   const startedAtRef = useRef<number | null>(null);
-  const movingTimeRef = useRef<number>(0);  // seconds accumulating while active
+  const movingTimeRef = useRef<number>(0);
   const lastTickRef = useRef<number | null>(null);
-  const distanceRef = useRef<number>(0);  // Track distance in ref for calculations
+  
+  // Raw values from GPS
+  const distanceRef = useRef<number>(0);
+  const speedMsRef = useRef<number | null>(null);
+  const lastUpdateTimeRef = useRef<number>(0);
+  
+  // For interpolation
+  const lastSpeedUpdateRef = useRef<number>(0);
 
   // Start / Pause / Reset
   const start = useCallback(() => setIsActive(true), []);
   const pause = useCallback(() => setIsActive(false), []);
   const reset = useCallback(() => {
     setIsActive(false);
-    setDistanceM(0);
+    setDisplayDistanceM(0);
     distanceRef.current = 0;
-    setSpeedMs(null);
-    setAvgSpeedMs(null);
+    setDisplaySpeedKmh(null);
+    setDisplayAvgSpeedKmh(null);
+    speedMsRef.current = null;
     setLastFix(null);
     prevRef.current = null;
     startedAtRef.current = null;
     movingTimeRef.current = 0;
     lastTickRef.current = null;
+    lastUpdateTimeRef.current = 0;
+    lastSpeedUpdateRef.current = 0;
   }, []);
 
-  // Accumulate moving time and update average speed in real-time
+  // High-frequency UI update loop - runs every frame for smooth display
   useEffect(() => {
     if (!isActive) return;
+    
     const r = () => {
       const now = performance.now();
-      if (lastTickRef.current != null) {
-        movingTimeRef.current += (now - lastTickRef.current) / 1000;
+      const dt = lastTickRef.current != null ? (now - lastTickRef.current) / 1000 : 0;
+      
+      if (lastTickRef.current != null && dt > 0) {
+        movingTimeRef.current += dt;
       }
       lastTickRef.current = now;
       
-      // Update average speed in real-time based on current distance and time
+      // Update displayed distance immediately (smooth interpolation)
+      setDisplayDistanceM(distanceRef.current);
+      
+      // Interpolate speed smoothly between GPS updates
+      if (speedMsRef.current != null) {
+        const currentSpeedKmh = speedMsRef.current * 3.6;
+        setDisplaySpeedKmh(currentSpeedKmh);
+      } else {
+        setDisplaySpeedKmh(null);
+      }
+      
+      // Update average speed in real-time
       const tsec = movingTimeRef.current;
-      if (tsec > 2 && distanceRef.current >= 0) {
-        const avg = distanceRef.current / tsec; // m/s
-        setAvgSpeedMs(avg);
+      if (tsec > 0.5 && distanceRef.current >= 0) {
+        const avgMs = distanceRef.current / tsec;
+        setDisplayAvgSpeedKmh(avgMs * 3.6);
       }
       
       requestAnimationFrame(r);
     };
+    
     lastTickRef.current = performance.now();
     const id = requestAnimationFrame(r);
     return () => cancelAnimationFrame(id);
@@ -77,7 +103,8 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
   // Check permission status
   useEffect(() => {
     if (!("geolocation" in navigator)) {
-      setError("Geolocation is not supported by this browser.");
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => setError("Geolocation is not supported by this browser."), 0);
       return;
     }
 
@@ -103,7 +130,8 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
 
   useEffect(() => {
     if (!("geolocation" in navigator)) {
-      setError("Geolocation is not supported by this browser.");
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => setError("Geolocation is not supported by this browser."), 0);
       return;
     }
 
@@ -115,10 +143,12 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
       const { latitude, longitude, speed, accuracy } = pos.coords;
       const now = pos.timestamp;
 
-      // Ignore very inaccurate or too-frequent updates
+      // Ignore very inaccurate fixes
       if ((accuracy ?? Infinity) > minAccuracyM) return;
 
       const prev = prevRef.current;
+      const nowMs = Date.now();
+      
       // Initialize timers
       if (!startedAtRef.current) startedAtRef.current = now;
 
@@ -126,6 +156,8 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
 
       if (prev) {
         const dt = (now - prev.t) / 1000;
+        
+        // Allow more frequent updates (minIntervalMs is now 100ms)
         if (dt * 1000 < minIntervalMs) return;
 
         // Compute segment distance
@@ -138,18 +170,30 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
         const unrealistic = d > 100 && dt <= 1;
         if (!unrealistic) {
           distanceRef.current += d;
-          setDistanceM(distanceRef.current); // Update state for UI
+          // Don't call setState here - let the animation loop handle it
         }
       }
 
-      // Smooth current speed
+      // Smooth current speed with exponential moving average
       if (s != null && Number.isFinite(s)) {
-        setSpeedMs((v) => (v == null ? s : v + (s - v) * smoothFactor));
+        const currentSpeed = speedMsRef.current;
+        if (currentSpeed == null) {
+          speedMsRef.current = s;
+        } else {
+          // EMA smoothing
+          speedMsRef.current = currentSpeed + (s - currentSpeed) * smoothFactor;
+        }
+        lastSpeedUpdateRef.current = nowMs;
+      } else if (s == null && prev) {
+        // If no speed from GPS, keep last known speed briefly, then decay
+        const timeSinceUpdate = (nowMs - lastSpeedUpdateRef.current) / 1000;
+        if (timeSinceUpdate > 2) {
+          speedMsRef.current = null;
+        }
       }
-      
-      // Average speed is now updated in real-time via requestAnimationFrame
 
       prevRef.current = { t: now, lat: latitude, lon: longitude, acc: accuracy ?? 9999 };
+      lastUpdateTimeRef.current = nowMs;
     };
 
     const onError = (e: GeolocationPositionError) => {
@@ -171,11 +215,11 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
     if (isActive) {
       watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, {
         enableHighAccuracy: true,
-        maximumAge: 0,  // Always get fresh position
-        timeout: 10000,
+        maximumAge: 100,  // Allow slightly stale data for smoother updates
+        timeout: 5000,    // Reduced timeout for faster response
       });
     } else {
-      // Clear distance ref when paused
+      // Clear watcher when paused
       if (watchIdRef.current != null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -190,16 +234,13 @@ export function useGeoTracker(opts: GeoTrackerOptions = {}) {
     };
   }, [isActive, minAccuracyM, minIntervalMs, smoothFactor]);
 
-  const kmh = speedMs == null ? null : speedMs * 3.6;
-  const avgKmh = avgSpeedMs == null ? null : avgSpeedMs * 3.6;
-
   return {
     isActive, start, pause, reset,
     error,
     permissionStatus,
-    distanceM,
-    speedMs, speedKmh: kmh,
-    avgSpeedMs, avgSpeedKmh: avgKmh,
+    distanceM: displayDistanceM,
+    speedKmh: displaySpeedKmh,
+    avgSpeedKmh: displayAvgSpeedKmh,
     lastFix,
   };
 }

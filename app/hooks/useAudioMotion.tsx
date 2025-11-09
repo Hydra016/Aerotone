@@ -25,7 +25,7 @@ export function useAudioMotion(
   const [audioContextStarted, setAudioContextStarted] = useState(false);
   
   const synthRef = useRef<Tone.Synth | null>(null);
-  const gainNodeRef = useRef<Tone.Gain | null>(null);
+  const volumeNodeRef = useRef<Tone.Volume | null>(null);
   const prevDataRef = useRef<AccelerometerData | null>(null);
   const velocityRef = useRef({ x: 0, y: 0, z: 0 });
 
@@ -46,17 +46,17 @@ export function useAudioMotion(
       },
     });
 
-    // Create gain node for volume control
-    const gainNode = new Tone.Gain(volume);
-    synth.connect(gainNode);
-    gainNode.toDestination();
+    // Create volume node for volume control (in dB)
+    const volumeNode = new Tone.Volume(Tone.gainToDb(volume));
+    synth.connect(volumeNode);
+    volumeNode.toDestination();
 
     synthRef.current = synth;
-    gainNodeRef.current = gainNode;
+    volumeNodeRef.current = volumeNode;
 
     return () => {
       synth.dispose();
-      gainNode.dispose();
+      volumeNode.dispose();
     };
   }, [enabled, volume]);
 
@@ -97,7 +97,7 @@ export function useAudioMotion(
     if (!enabled || !data || !synthRef.current || !audioContextStarted) return;
 
     const synth = synthRef.current;
-    const gainNode = gainNodeRef.current;
+    const volumeNode = volumeNodeRef.current;
     const prev = prevDataRef.current;
 
     if (prev) {
@@ -144,8 +144,8 @@ export function useAudioMotion(
       synth.oscillator.frequency.rampTo(frequency, 0.1); // Smooth frequency change over 100ms
     }
     
-    if (gainNode) {
-      gainNode.volume.rampTo(Tone.gainToDb(dynamicVolume), 0.1); // Smooth volume change
+    if (volumeNode) {
+      volumeNode.volume.rampTo(Tone.gainToDb(dynamicVolume), 0.1); // Smooth volume change in dB
     }
 
     prevDataRef.current = data;

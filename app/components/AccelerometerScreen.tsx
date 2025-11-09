@@ -2,7 +2,7 @@
 import { useAccelerometer } from '../hooks/useAccelerometer';
 
 export default function AccelerometerScreen() {
-  const { data, error, isSupported } = useAccelerometer();
+  const { data, error, isSupported, needsPermission, requestPermission } = useAccelerometer();
 
   const formatValue = (value: number | null | undefined): string => {
     if (value == null) return '—';
@@ -29,7 +29,40 @@ export default function AccelerometerScreen() {
         Accelerometer Data
       </h1>
 
-      {error && (
+      {needsPermission && (
+        <div style={{
+          padding: 16,
+          borderRadius: 12,
+          background: '#e3f2fd',
+          border: '1px solid #2196F3',
+          color: '#1565c0',
+          marginBottom: 24,
+        }}>
+          <div style={{ marginBottom: 12 }}>
+            <strong>Permission Required</strong>
+          </div>
+          <div style={{ marginBottom: 12, fontSize: 14 }}>
+            This app needs access to your device's motion sensors. Click the button below to grant permission.
+          </div>
+          <button
+            onClick={requestPermission}
+            style={{
+              padding: '12px 24px',
+              borderRadius: 8,
+              border: 'none',
+              background: '#2196F3',
+              color: 'white',
+              fontSize: 16,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Allow Motion Access
+          </button>
+        </div>
+      )}
+
+      {error && !needsPermission && (
         <div style={{
           padding: 16,
           borderRadius: 12,

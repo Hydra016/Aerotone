@@ -187,8 +187,9 @@ export function useAudioMotion(
   // Start/stop continuous sound
   useEffect(() => {
     if (!enabled || !synthRef.current || !audioContextStarted) {
-      if (synthRef.current && 'triggerRelease' in synthRef.current) {
-        (synthRef.current as any).triggerRelease();
+      const synth = synthRef.current;
+      if (synth && typeof synth === 'object' && 'triggerRelease' in synth) {
+        (synth as any).triggerRelease();
       }
       return;
     }
@@ -196,12 +197,12 @@ export function useAudioMotion(
     const synth = synthRef.current;
     
     // Start continuous sound (different methods for different synths)
-    if ('triggerAttack' in synth) {
+    if (synth && typeof synth === 'object' && 'triggerAttack' in synth) {
       (synth as any).triggerAttack(baseFrequency);
     }
 
     return () => {
-      if ('triggerRelease' in synth) {
+      if (synth && typeof synth === 'object' && 'triggerRelease' in synth) {
         (synth as any).triggerRelease();
       }
     };
@@ -255,10 +256,12 @@ export function useAudioMotion(
 
     // Smoothly update frequency and volume
     // Different synths have different frequency control paths
-    if ('oscillator' in synth && synth.oscillator && 'frequency' in synth.oscillator) {
-      (synth.oscillator as any).frequency.rampTo(frequency, 0.1);
-    } else if ('frequency' in synth) {
-      (synth as any).frequency.rampTo(frequency, 0.1);
+    if (synth && typeof synth === 'object') {
+      if ('oscillator' in synth && synth.oscillator && typeof synth.oscillator === 'object' && 'frequency' in synth.oscillator) {
+        (synth.oscillator as any).frequency.rampTo(frequency, 0.1);
+      } else if ('frequency' in synth) {
+        (synth as any).frequency.rampTo(frequency, 0.1);
+      }
     }
     
     if (volumeNode) {
@@ -273,8 +276,9 @@ export function useAudioMotion(
     audioContextStarted,
     startAudio,
     stop: () => {
-      if (synthRef.current && 'triggerRelease' in synthRef.current) {
-        (synthRef.current as any).triggerRelease();
+      const synth = synthRef.current;
+      if (synth && typeof synth === 'object' && 'triggerRelease' in synth) {
+        (synth as any).triggerRelease();
       }
       setIsPlaying(false);
     },
